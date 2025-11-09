@@ -52,26 +52,26 @@ html, body {
   gap: 6px;
 }
 
-.layout-btn {
-  background: #1E293B;
-  border: 2px solid #00FFAA;
-  color: #00FFAA;
-  padding: 6px 12px;
+.add-new-stream-btn {
+  background: #00FFAA;
+  border: none;
+  color: #0D1117;
+  padding: 8px 16px;
   border-radius: 6px;
   cursor: pointer;
-  font-weight: 600;
-  font-size: 13px;
+  font-weight: 700;
+  font-size: 14px;
   transition: all 0.3s;
+  box-shadow: 0 4px 15px rgba(0, 255, 170, 0.3);
 }
 
-.layout-btn:hover {
-  background: #00FFAA;
-  color: #0D1117;
+.add-new-stream-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 255, 170, 0.5);
 }
 
-.layout-btn.active {
-  background: #00FFAA;
-  color: #0D1117;
+.add-new-stream-btn i {
+  margin-right: 8px;
 }
 
 .container {
@@ -88,26 +88,39 @@ html, body {
   gap: 6px;
   flex: 1;
   min-height: 0;
+  grid-auto-rows: 1fr;
 }
 
-.stream-grid.grid-1 {
+/* Dynamic grid layouts based on number of streams */
+.stream-grid.grid-auto {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.stream-grid.grid-auto[data-count="1"] {
   grid-template-columns: 1fr;
-  grid-template-rows: 1fr;
 }
 
-.stream-grid.grid-2 {
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr;
+.stream-grid.grid-auto[data-count="2"] {
+  grid-template-columns: repeat(2, 1fr);
 }
 
-.stream-grid.grid-3 {
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
+.stream-grid.grid-auto[data-count="3"] {
+  grid-template-columns: repeat(2, 1fr);
 }
 
-.stream-grid.grid-4 {
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
+.stream-grid.grid-auto[data-count="4"] {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.stream-grid.grid-auto[data-count="5"],
+.stream-grid.grid-auto[data-count="6"] {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.stream-grid.grid-auto[data-count="7"],
+.stream-grid.grid-auto[data-count="8"],
+.stream-grid.grid-auto[data-count="9"] {
+  grid-template-columns: repeat(3, 1fr);
 }
 
 .stream-slot {
@@ -323,12 +336,40 @@ html, body {
   display: flex;
   align-items: center;
   gap: 8px;
+  cursor: pointer;
+  transition: all 0.3s;
+  user-select: none;
+}
+
+.category-header:hover {
+  background: #283548;
+  transform: translateX(2px);
+}
+
+.category-header.collapsed {
+  opacity: 0.6;
+}
+
+.category-header i.toggle-icon {
+  margin-left: auto;
+  transition: transform 0.3s;
+}
+
+.category-header.collapsed i.toggle-icon {
+  transform: rotate(-90deg);
 }
 
 .game-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  max-height: 500px;
+  overflow-y: auto;
+  transition: all 0.3s;
+}
+
+.game-list.hidden {
+  display: none;
 }
 
 .game-item {
@@ -426,10 +467,8 @@ html, body {
 }
 
 @media (max-width: 768px) {
-  .stream-grid.grid-2,
-  .stream-grid.grid-3,
-  .stream-grid.grid-4 {
-    grid-template-columns: 1fr;
+  .stream-grid.grid-auto {
+    grid-template-columns: 1fr !important;
     grid-template-rows: repeat(auto-fit, minmax(250px, 1fr));
   }
   
@@ -449,70 +488,16 @@ html, body {
   <div class="header-content">
     <h1><i class="fas fa-th"></i> Multi-Stream Viewer</h1>
     <div class="layout-toggle">
-      <button class="layout-btn active" data-layout="4"><i class="fas fa-th"></i> 2x2</button>
-      <button class="layout-btn" data-layout="2"><i class="fas fa-columns"></i> 1x2</button>
-      <button class="layout-btn" data-layout="1"><i class="fas fa-square"></i> 1x1</button>
+      <button class="add-new-stream-btn" onclick="addNewStreamSlot()">
+        <i class="fas fa-plus"></i> Add Stream
+      </button>
     </div>
   </div>
 </header>
 
 <div class="container">
-  <div class="stream-grid grid-4" id="streamGrid">
-    <div class="stream-slot" data-slot="1">
-      <div class="stream-header">
-        <div class="stream-title">Stream Slot 1</div>
-        <div class="stream-controls"></div>
-      </div>
-      <div class="stream-content">
-        <div class="empty-slot">
-          <button class="add-stream-btn" onclick="openGameSelector(1)">
-            <i class="fas fa-plus"></i> Add Stream
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <div class="stream-slot" data-slot="2">
-      <div class="stream-header">
-        <div class="stream-title">Stream Slot 2</div>
-        <div class="stream-controls"></div>
-      </div>
-      <div class="stream-content">
-        <div class="empty-slot">
-          <button class="add-stream-btn" onclick="openGameSelector(2)">
-            <i class="fas fa-plus"></i> Add Stream
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <div class="stream-slot" data-slot="3">
-      <div class="stream-header">
-        <div class="stream-title">Stream Slot 3</div>
-        <div class="stream-controls"></div>
-      </div>
-      <div class="stream-content">
-        <div class="empty-slot">
-          <button class="add-stream-btn" onclick="openGameSelector(3)">
-            <i class="fas fa-plus"></i> Add Stream
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <div class="stream-slot" data-slot="4">
-      <div class="stream-header">
-        <div class="stream-title">Stream Slot 4</div>
-        <div class="stream-controls"></div>
-      </div>
-      <div class="stream-content">
-        <div class="empty-slot">
-          <button class="add-stream-btn" onclick="openGameSelector(4)">
-            <i class="fas fa-plus"></i> Add Stream
-          </button>
-        </div>
-      </div>
-    </div>
+  <div class="stream-grid grid-auto" id="streamGrid">
+    <!-- Streams will be added dynamically -->
   </div>
 </div>
 
@@ -548,43 +533,241 @@ document.addEventListener('click', function(e) {
 
 // Configuration
 const API_BASE = 'https://streamed.pk/api';
+const STORAGE_KEY = 'multistream_active_streams';
+const STORAGE_NEXTID_KEY = 'multistream_next_slot_id';
 
 // State
 let currentSlot = null;
 let availableGames = [];
 let activeStreams = {};
+let nextSlotId = 1;
 
 // Initialize
 document.addEventListener('DOMContentLoaded', function() {
-  setupLayoutButtons();
   loadAvailableGames();
+  loadSavedStreams();
+  updateGridLayout();
 });
 
-// Layout switching
-function setupLayoutButtons() {
-  document.querySelectorAll('.layout-btn').forEach(btn => {
-    btn.addEventListener('click', function() {
-      const layout = this.dataset.layout;
-      
-      // Update active button
-      document.querySelectorAll('.layout-btn').forEach(b => b.classList.remove('active'));
-      this.classList.add('active');
-      
-      // Update grid
+// Save streams to localStorage
+function saveStreamsToStorage() {
+  try {
+    const streamsToSave = {};
+    for (const [slotId, streamData] of Object.entries(activeStreams)) {
+      // Only save essential data, not the full streams array
+      streamsToSave[slotId] = {
+        id: streamData.id,
+        title: streamData.title,
+        category: streamData.category,
+        isLive: streamData.isLive,
+        sources: streamData.sources,
+        currentStreamIndex: streamData.currentStreamIndex || 0
+      };
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(streamsToSave));
+    localStorage.setItem(STORAGE_NEXTID_KEY, nextSlotId.toString());
+  } catch (error) {
+    console.error('Error saving streams to storage:', error);
+  }
+}
+
+// Load saved streams from localStorage
+async function loadSavedStreams() {
+  try {
+    const savedStreams = localStorage.getItem(STORAGE_KEY);
+    const savedNextId = localStorage.getItem(STORAGE_NEXTID_KEY);
+    
+    if (savedNextId) {
+      nextSlotId = parseInt(savedNextId);
+    }
+    
+    if (!savedStreams) return;
+    
+    const streamsData = JSON.parse(savedStreams);
+    
+    // Restore each stream
+    for (const [slotId, streamData] of Object.entries(streamsData)) {
+      // Create slot first
       const grid = document.getElementById('streamGrid');
-      grid.className = 'stream-grid grid-' + layout;
+      const slotNumber = parseInt(slotId);
       
-      // Show/hide slots based on layout
-      const slots = document.querySelectorAll('.stream-slot');
-      slots.forEach((slot, index) => {
-        if (index < parseInt(layout)) {
-          slot.style.display = 'flex';
-        } else {
-          slot.style.display = 'none';
+      const slotHtml = `
+        <div class="stream-slot" data-slot="${slotNumber}">
+          <div class="stream-header">
+            <div class="stream-title">Stream ${slotNumber}</div>
+            <div class="stream-controls">
+              <button class="control-btn remove" onclick="removeStreamSlot(${slotNumber})" title="Remove slot">
+                <i class="fas fa-times"></i>
+              </button>
+            </div>
+          </div>
+          <div class="stream-content">
+            <div class="iframe-loading"><i class="fas fa-spinner fa-spin"></i></div>
+          </div>
+        </div>
+      `;
+      
+      grid.insertAdjacentHTML('beforeend', slotHtml);
+      
+      // Load the stream
+      await restoreStream(slotNumber, streamData);
+    }
+    
+    updateGridLayout();
+  } catch (error) {
+    console.error('Error loading saved streams:', error);
+  }
+}
+
+// Restore a single stream
+async function restoreStream(slotNumber, streamData) {
+  try {
+    const slot = document.querySelector(`.stream-slot[data-slot="${slotNumber}"]`);
+    if (!slot) return;
+    
+    const streamContent = slot.querySelector('.stream-content');
+    if (!streamContent) return;
+    
+    // Fetch streams from sources
+    const allStreams = [];
+    for (const source of streamData.sources) {
+      try {
+        const response = await fetch(`${API_BASE}/stream/${source.source}/${source.id}`);
+        if (response.ok) {
+          const streams = await response.json();
+          streams.forEach(stream => {
+            stream.sourceName = source.source;
+            stream.displayName = `${stream.language} ${stream.hd ? 'HD' : 'SD'} (${source.source})`;
+          });
+          allStreams.push(...streams);
         }
-      });
-    });
-  });
+      } catch (err) {
+        console.warn(`Failed to load streams from ${source.source}:`, err);
+      }
+    }
+    
+    if (allStreams.length === 0) {
+      throw new Error('No streams available');
+    }
+    
+    const streamIndex = streamData.currentStreamIndex || 0;
+    const selectedStream = allStreams[streamIndex] || allStreams[0];
+    
+    // Store in activeStreams
+    activeStreams[slotNumber] = {
+      ...streamData,
+      streams: allStreams,
+      currentStreamIndex: streamIndex
+    };
+    
+    // Update slot with stream
+    streamContent.innerHTML = `
+      <iframe 
+        src="${selectedStream.embedUrl}"
+        width="100%"
+        height="100%"
+        frameborder="0"
+        scrolling="no"
+        allowfullscreen="yes"
+        referrerpolicy="origin"
+        allow="autoplay; fullscreen">
+      </iframe>
+    `;
+    
+    // Update header
+    const streamTitle = slot.querySelector('.stream-title');
+    streamTitle.innerHTML = `
+      ${streamData.title}
+      ${streamData.isLive ? '<span class="live-indicator">LIVE</span>' : ''}
+    `;
+    
+    // Add controls
+    const streamControls = slot.querySelector('.stream-controls');
+    let controlsHTML = '';
+    
+    if (allStreams.length > 1) {
+      controlsHTML += `
+        <select class="control-btn server-selector" onchange="switchStream(${slotNumber}, this.value)" title="Switch stream">
+          ${allStreams.map((stream, idx) => `
+            <option value="${idx}" ${idx === streamIndex ? 'selected' : ''}>${stream.displayName}</option>
+          `).join('')}
+        </select>
+      `;
+    }
+    
+    controlsHTML += `
+      <button class="control-btn remove" onclick="removeStream(${slotNumber})" title="Remove stream">
+        <i class="fas fa-times"></i>
+      </button>
+    `;
+    
+    streamControls.innerHTML = controlsHTML;
+    slot.classList.add('active');
+    
+  } catch (error) {
+    console.error('Error restoring stream:', error);
+    const slot = document.querySelector(`.stream-slot[data-slot="${slotNumber}"]`);
+    if (slot) {
+      const streamContent = slot.querySelector('.stream-content');
+      streamContent.innerHTML = `
+        <div class="empty-slot">
+          <button class="add-stream-btn" onclick="openGameSelector(${slotNumber})">
+            <i class="fas fa-plus"></i> Add Stream
+          </button>
+        </div>
+      `;
+    }
+  }
+}
+
+// Add a new stream slot
+function addNewStreamSlot() {
+  const grid = document.getElementById('streamGrid');
+  const slotNumber = nextSlotId++;
+  
+  const slotHtml = `
+    <div class="stream-slot" data-slot="${slotNumber}">
+      <div class="stream-header">
+        <div class="stream-title">Stream ${slotNumber}</div>
+        <div class="stream-controls">
+          <button class="control-btn remove" onclick="removeStreamSlot(${slotNumber})" title="Remove slot">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+      </div>
+      <div class="stream-content">
+        <div class="empty-slot">
+          <button class="add-stream-btn" onclick="openGameSelector(${slotNumber})">
+            <i class="fas fa-plus"></i> Add Stream
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  grid.insertAdjacentHTML('beforeend', slotHtml);
+  updateGridLayout();
+  
+  // Automatically open game selector for the new slot
+  openGameSelector(slotNumber);
+}
+
+// Remove a stream slot entirely
+function removeStreamSlot(slotNumber) {
+  const slot = document.querySelector(`.stream-slot[data-slot="${slotNumber}"]`);
+  if (slot) {
+    slot.remove();
+    delete activeStreams[slotNumber];
+    updateGridLayout();
+    saveStreamsToStorage();
+  }
+}
+
+// Update grid layout based on number of streams
+function updateGridLayout() {
+  const grid = document.getElementById('streamGrid');
+  const streamCount = grid.querySelectorAll('.stream-slot').length;
+  grid.setAttribute('data-count', streamCount);
 }
 
 // Load available games from the API
@@ -671,7 +854,18 @@ function renderGameList(categories) {
     
     const header = document.createElement('div');
     header.className = 'category-header';
-    header.innerHTML = `<i class="fas ${icon}"></i> ${category.name}`;
+    header.innerHTML = `
+      <i class="fas ${icon}"></i> 
+      ${category.name}
+      <i class="fas fa-chevron-down toggle-icon"></i>
+    `;
+    
+    // Add click handler for toggling
+    header.addEventListener('click', function() {
+      this.classList.toggle('collapsed');
+      gameList.classList.toggle('hidden');
+    });
+    
     categorySection.appendChild(header);
     
     const gameList = document.createElement('div');
@@ -865,6 +1059,9 @@ async function selectGame(game) {
     // Mark slot as active
     slot.classList.add('active');
     
+    // Save to localStorage
+    saveStreamsToStorage();
+    
   } catch (error) {
     console.error('Error loading stream:', error);
     streamContent.innerHTML = `
@@ -918,6 +1115,9 @@ async function switchStream(slotNumber, streamIndex) {
     // Update current stream index
     activeStreams[slotNumber].currentStreamIndex = parseInt(streamIndex);
     
+    // Save to localStorage
+    saveStreamsToStorage();
+    
   } catch (error) {
     console.error('Error switching stream:', error);
     streamContent.innerHTML = `
@@ -937,7 +1137,7 @@ async function switchStream(slotNumber, streamIndex) {
   }
 }
 
-// Remove stream from slot
+// Remove stream from slot (clear content but keep slot)
 function removeStream(slotNumber) {
   const slot = document.querySelector(`.stream-slot[data-slot="${slotNumber}"]`);
   if (!slot) {
@@ -963,12 +1163,19 @@ function removeStream(slotNumber) {
     </div>
   `;
   
-  streamTitle.textContent = `Stream Slot ${slotNumber}`;
-  streamControls.innerHTML = '';
+  streamTitle.textContent = `Stream ${slotNumber}`;
+  streamControls.innerHTML = `
+    <button class="control-btn remove" onclick="removeStreamSlot(${slotNumber})" title="Remove slot">
+      <i class="fas fa-times"></i>
+    </button>
+  `;
   slot.classList.remove('active');
   
   // Remove from active streams
   delete activeStreams[slotNumber];
+  
+  // Save to localStorage
+  saveStreamsToStorage();
 }
 
 // Close modal when clicking outside
