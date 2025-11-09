@@ -533,6 +533,19 @@ html, body {
 </div>
 
 <script>
+// Block all popups
+window.open = function() { return null; };
+
+// Prevent target="_blank" links from opening in new windows
+document.addEventListener('click', function(e) {
+  const target = e.target.closest('a');
+  if (target && target.target === '_blank') {
+    e.preventDefault();
+    e.stopPropagation();
+    return false;
+  }
+}, true);
+
 // Configuration
 const CORS_PROXY = 'https://corsproxy.io/?';
 const GAMES_URL = 'https://v3.gostreameast.link/';
@@ -817,8 +830,9 @@ async function selectGame(game) {
         frameborder="0"
         scrolling="no"
         allowfullscreen="yes"
-        sandbox="allow-scripts allow-same-origin"
-        referrerpolicy="origin">
+        sandbox="allow-scripts allow-same-origin allow-forms"
+        referrerpolicy="origin"
+        allow="autoplay; fullscreen">
       </iframe>
     `;
     
@@ -917,8 +931,9 @@ async function switchServer(slotNumber, serverIndex) {
         frameborder="0"
         scrolling="no"
         allowfullscreen="yes"
-        sandbox="allow-scripts allow-same-origin"
-        referrerpolicy="origin">
+        sandbox="allow-scripts allow-same-origin allow-forms"
+        referrerpolicy="origin"
+        allow="autoplay; fullscreen">
       </iframe>
     `;
     
