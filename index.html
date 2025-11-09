@@ -533,6 +533,8 @@ document.addEventListener('click', function(e) {
 
 // Configuration
 const API_BASE = 'https://streamed.pk/api';
+const CORS_PROXY = 'https://corsproxy.io/?';
+const STREAMEAST_URL = 'https://v3.gostreameast.link/';
 const STORAGE_KEY = 'multistream_active_streams';
 const STORAGE_NEXTID_KEY = 'multistream_next_slot_id';
 
@@ -628,81 +630,169 @@ async function restoreStream(slotNumber, streamData) {
     const streamContent = slot.querySelector('.stream-content');
     if (!streamContent) return;
     
-    // Fetch streams from sources
-    const allStreams = [];
-    for (const source of streamData.sources) {
-      try {
-        const response = await fetch(`${API_BASE}/stream/${source.source}/${source.id}`);
-        if (response.ok) {
-          const streams = await response.json();
-          streams.forEach(stream => {
-            stream.sourceName = source.source;
-            stream.displayName = `${stream.language} ${stream.hd ? 'HD' : 'SD'} (${source.source})`;
-          });
-          allStreams.push(...streams);
+    // Check if API or scraped source
+    if (streamData.sourceType === 'api') {
+      // Restore API-based stream (Soccer)
+      const allStreams = [];
+      for (const source of streamData.sources) {
+        try {
+          const response = await fetch(`${API_BASE}/stream/${source.source}/${source.id}`);
+          if (response.ok) {
+            const streams = await response.json();
+            streams.forEach(stream => {
+              stream.sourceName = source.source;
+              stream.displayName = `${stream.language} ${stream.hd ? 'HD' : 'SD'} (${source.source})`;
+            });
+            allStreams.push(...streams);
+          }
+        } catch (err) {
+          console.warn(`Failed to load streams from ${source.source}:`, err);
         }
-      } catch (err) {
-        console.warn(`Failed to load streams from ${source.source}:`, err);
       }
-    }
-    
-    if (allStreams.length === 0) {
-      throw new Error('No streams available');
-    }
-    
-    const streamIndex = streamData.currentStreamIndex || 0;
-    const selectedStream = allStreams[streamIndex] || allStreams[0];
-    
-    // Store in activeStreams
-    activeStreams[slotNumber] = {
-      ...streamData,
-      streams: allStreams,
-      currentStreamIndex: streamIndex
-    };
-    
-    // Update slot with stream
-    streamContent.innerHTML = `
-      <iframe 
-        src="${selectedStream.embedUrl}"
-        width="100%"
-        height="100%"
-        frameborder="0"
-        scrolling="no"
-        allowfullscreen="yes"
-        referrerpolicy="origin"
-        allow="autoplay; fullscreen">
-      </iframe>
-    `;
-    
-    // Update header
-    const streamTitle = slot.querySelector('.stream-title');
-    streamTitle.innerHTML = `
-      ${streamData.title}
-      ${streamData.isLive ? '<span class="live-indicator">LIVE</span>' : ''}
-    `;
-    
-    // Add controls
-    const streamControls = slot.querySelector('.stream-controls');
-    let controlsHTML = '';
-    
-    if (allStreams.length > 1) {
-      controlsHTML += `
-        <select class="control-btn server-selector" onchange="switchStream(${slotNumber}, this.value)" title="Switch stream">
-          ${allStreams.map((stream, idx) => `
-            <option value="${idx}" ${idx === streamIndex ? 'selected' : ''}>${stream.displayName}</option>
-          `).join('')}
-        </select>
+      
+      if (allStreams.length === 0) {
+        throw new Error('No streams available');
+      }
+      
+      const streamIndex = streamData.currentStreamIndex || 0;
+      const selectedStream = allStreams[streamIndex] || allStreams[0];
+      
+      // Store in activeStreams
+      activeStreams[slotNumber] = {
+        ...streamData,
+        streams: allStreams,
+        currentStreamIndex: streamIndex
+      };
+      
+      // Update slot with stream (NO SANDBOX for API)
+      streamContent.innerHTML = `
+        <iframe 
+          src="${selectedStream.embedUrl}"
+          width="100%"
+          height="100%"
+          frameborder="0"
+          scrolling="no"
+          allowfullscreen="yes"
+          referrerpolicy="origin"
+          allow="autoplay; fullscreen; encrypted-media">
+        </iframe>
       `;
+      
+      // Update header
+      const streamTitle = slot.querySelector('.stream-title');
+      streamTitle.innerHTML = `
+        ${streamData.title}
+        ${streamData.isLive ? '<span class="live-indicator">LIVE</span>' : ''}
+      `;
+      
+      // Add controls
+      const streamControls = slot.querySelector('.stream-controls');
+      let controlsHTML = '';
+      
+      if (allStreams.length > 1) {
+        controlsHTML += `
+          <select class="control-btn server-selector" onchange="switchStream(${slotNumber}, this.value)" title="Switch stream">
+            ${allStreams.map((stream, idx) => `
+              <option value="${idx}" ${idx === streamIndex ? 'selected' : ''}>${stream.displayName}</option>
+            `).join('')}
+          </select>
+        `;
+      }
+      
+      controlsHTML += `
+        <button class="control-btn remove" onclick="removeStream(${slotNumber})" title="Remove stream">
+          <i class="fas fa-times"></i>
+        </button>
+      `;
+      
+      streamControls.innerHTML = controlsHTML;
+      slot.classList.add('active');
+      
+    } else {
+      // Restore scraped stream (Other sports)
+      // For scraped streams, we need to re-fetch from the URL
+      if (!streamData.url) {
+        throw new Error('No URL available for this stream');
+      }
+      
+      const response = await fetch(CORS_PROXY + streamData.url);
+      if (!response.ok) throw new Error('Failed to load game page');
+      
+      const htmlText = await response.text();
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(htmlText, 'text/html');
+      
+      // Find the iframe
+      const iframe = doc.querySelector('#iframe, .new-player-container iframe, .se-player-container iframe');
+      if (!iframe || !iframe.src) {
+        throw new Error('Stream not found');
+      }
+      
+      const iframeSrc = iframe.src;
+      
+      // Find servers
+      const serverLinks = doc.querySelectorAll('.se-alt-btn, .se-alt-streams-list a');
+      const servers = [];
+      serverLinks.forEach((link, index) => {
+        const serverUrl = link.href || link.getAttribute('href');
+        const serverName = link.textContent.trim() || `Server ${index + 1}`;
+        if (serverUrl && !serverUrl.includes('javascript:')) {
+          servers.push({ name: serverName, url: serverUrl });
+        }
+      });
+      
+      // Store in activeStreams
+      activeStreams[slotNumber] = {
+        ...streamData,
+        servers: servers,
+        currentServer: 0
+      };
+      
+      // Update slot with stream (WITH SANDBOX for StreamEast)
+      streamContent.innerHTML = `
+        <iframe 
+          src="${iframeSrc}"
+          width="100%"
+          height="100%"
+          frameborder="0"
+          scrolling="no"
+          allowfullscreen="yes"
+          sandbox="allow-scripts allow-same-origin allow-forms"
+          referrerpolicy="origin"
+          allow="autoplay; fullscreen; encrypted-media">
+        </iframe>
+      `;
+      
+      // Update header
+      const streamTitle = slot.querySelector('.stream-title');
+      streamTitle.innerHTML = `
+        ${streamData.title}
+        ${streamData.isLive ? '<span class="live-indicator">LIVE</span>' : ''}
+      `;
+      
+      // Add controls
+      const streamControls = slot.querySelector('.stream-controls');
+      let controlsHTML = '';
+      
+      if (servers.length > 1) {
+        controlsHTML += `
+          <select class="control-btn server-selector" onchange="switchStream(${slotNumber}, this.value)" title="Switch server">
+            ${servers.map((server, idx) => `
+              <option value="${idx}">${server.name}</option>
+            `).join('')}
+          </select>
+        `;
+      }
+      
+      controlsHTML += `
+        <button class="control-btn remove" onclick="removeStream(${slotNumber})" title="Remove stream">
+          <i class="fas fa-times"></i>
+        </button>
+      `;
+      
+      streamControls.innerHTML = controlsHTML;
+      slot.classList.add('active');
     }
-    
-    controlsHTML += `
-      <button class="control-btn remove" onclick="removeStream(${slotNumber})" title="Remove stream">
-        <i class="fas fa-times"></i>
-      </button>
-    `;
-    
-    streamControls.innerHTML = controlsHTML;
-    slot.classList.add('active');
     
   } catch (error) {
     console.error('Error restoring stream:', error);
@@ -770,43 +860,118 @@ function updateGridLayout() {
   grid.setAttribute('data-count', streamCount);
 }
 
-// Load available games from the API
+// Load available games from both APIs
 async function loadAvailableGames() {
   const container = document.getElementById('gameListContainer');
   container.innerHTML = '<div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i><br>Loading games...</div>';
   
   try {
-    // Fetch live matches from the API
-    const response = await fetch(`${API_BASE}/matches/live`);
-    if (!response.ok) throw new Error('Failed to load matches');
-    
-    const matches = await response.json();
-    
-    // Group matches by category (sport)
     const categoriesMap = new Map();
     
-    matches.forEach(match => {
-      const category = match.category.charAt(0).toUpperCase() + match.category.slice(1);
-      
-      if (!categoriesMap.has(category)) {
-        categoriesMap.set(category, []);
+    // 1. Fetch Soccer from Streamed.pk API
+    try {
+      const response = await fetch(`${API_BASE}/matches/live`);
+      if (response.ok) {
+        const matches = await response.json();
+        
+        matches.forEach(match => {
+          // Only include soccer/football from Streamed API
+          if (match.category.toLowerCase() === 'football' || 
+              match.category.toLowerCase() === 'soccer') {
+            
+            if (!categoriesMap.has('Soccer')) {
+              categoriesMap.set('Soccer', []);
+            }
+            
+            const game = {
+              id: match.id,
+              title: match.title,
+              category: 'Soccer',
+              isLive: true,
+              statusText: 'LIVE',
+              date: match.date,
+              poster: match.poster,
+              teams: match.teams,
+              sources: match.sources,
+              sourceType: 'api' // Mark as API source
+            };
+            
+            categoriesMap.get('Soccer').push(game);
+          }
+        });
       }
-      
-      // Convert API match to our game format
-      const game = {
-        id: match.id,
-        title: match.title,
-        category: category,
-        isLive: true, // All matches from /live endpoint are live
-        statusText: 'LIVE',
-        date: match.date,
-        poster: match.poster,
-        teams: match.teams,
-        sources: match.sources // Keep sources for stream fetching
-      };
-      
-      categoriesMap.get(category).push(game);
-    });
+    } catch (err) {
+      console.warn('Failed to load from Streamed API:', err);
+    }
+    
+    // 2. Fetch all other sports from StreamEast
+    try {
+      const response = await fetch(CORS_PROXY + STREAMEAST_URL);
+      if (response.ok) {
+        const htmlText = await response.text();
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(htmlText, 'text/html');
+        
+        const categorySections = doc.querySelectorAll('.sports-category-area');
+        
+        categorySections.forEach(section => {
+          let categoryTitle = section.querySelector('.category-title-header h2')?.textContent.trim();
+          if (!categoryTitle) return;
+          
+          // Rename categories
+          if (categoryTitle.toLowerCase().includes('american football') || 
+              categoryTitle.toLowerCase() === 'football' ||
+              categoryTitle.toLowerCase() === 'nfl') {
+            categoryTitle = 'NFL';
+          } else if (categoryTitle.toLowerCase() === 'soccer') {
+            // Skip soccer from StreamEast, we already got it from API
+            return;
+          }
+          
+          const games = [];
+          const matchCards = section.querySelectorAll('.match-card');
+          
+          matchCards.forEach(card => {
+            const linkElement = card.querySelector('.match-title-link');
+            const statusElement = card.querySelector('.match-status-info');
+            
+            if (!linkElement) return;
+            
+            const title = linkElement.textContent.trim();
+            const url = linkElement.href;
+            
+            let isLive = false;
+            let statusText = 'Upcoming';
+            
+            if (statusElement) {
+              const liveBadge = statusElement.querySelector('.live-status-badge');
+              if (liveBadge) {
+                isLive = true;
+                statusText = 'LIVE';
+              }
+            }
+            
+            games.push({ 
+              title, 
+              url, 
+              isLive, 
+              statusText, 
+              category: categoryTitle,
+              sourceType: 'scrape' // Mark as scraped source
+            });
+          });
+          
+          if (games.length > 0) {
+            if (!categoriesMap.has(categoryTitle)) {
+              categoriesMap.set(categoryTitle, []);
+            }
+            categoriesMap.get(categoryTitle).push(...games);
+          }
+        });
+      }
+    } catch (err) {
+      console.warn('Failed to load from StreamEast:', err);
+    }
     
     // Convert map to array format
     const categories = Array.from(categoriesMap.entries()).map(([name, games]) => ({
@@ -974,57 +1139,117 @@ async function selectGame(game) {
   streamContent.innerHTML = '<div class="iframe-loading"><i class="fas fa-spinner fa-spin"></i></div>';
   
   try {
-    // Check if game has sources
-    if (!game.sources || game.sources.length === 0) {
-      throw new Error('No stream sources available for this match');
-    }
+    let allStreams = [];
     
-    // Fetch streams from all available sources
-    const allStreams = [];
-    for (const source of game.sources) {
-      try {
-        const response = await fetch(`${API_BASE}/stream/${source.source}/${source.id}`);
-        if (response.ok) {
-          const streams = await response.json();
-          // Add source info to each stream
-          streams.forEach(stream => {
-            stream.sourceName = source.source;
-            stream.displayName = `${stream.language} ${stream.hd ? 'HD' : 'SD'} (${source.source})`;
-          });
-          allStreams.push(...streams);
-        }
-      } catch (err) {
-        console.warn(`Failed to load streams from ${source.source}:`, err);
+    // Check source type: API (Soccer) or Scraped (other sports)
+    if (game.sourceType === 'api') {
+      // Soccer from Streamed API
+      if (!game.sources || game.sources.length === 0) {
+        throw new Error('No stream sources available for this match');
       }
+      
+      // Fetch streams from all available sources
+      for (const source of game.sources) {
+        try {
+          const response = await fetch(`${API_BASE}/stream/${source.source}/${source.id}`);
+          if (response.ok) {
+            const streams = await response.json();
+            streams.forEach(stream => {
+              stream.sourceName = source.source;
+              stream.displayName = `${stream.language} ${stream.hd ? 'HD' : 'SD'} (${source.source})`;
+            });
+            allStreams.push(...streams);
+          }
+        } catch (err) {
+          console.warn(`Failed to load streams from ${source.source}:`, err);
+        }
+      }
+      
+      if (allStreams.length === 0) {
+        throw new Error('No streams available for this match');
+      }
+      
+      // Use the first stream by default
+      const primaryStream = allStreams[0];
+      
+      // Store streams for this slot
+      activeStreams[slotNumber] = { 
+        ...game, 
+        streams: allStreams, 
+        currentStreamIndex: 0 
+      };
+      
+      // Update slot with stream (NO SANDBOX for Streamed API)
+      streamContent.innerHTML = `
+        <iframe 
+          src="${primaryStream.embedUrl}"
+          width="100%"
+          height="100%"
+          frameborder="0"
+          scrolling="no"
+          allowfullscreen="yes"
+          referrerpolicy="origin"
+          allow="autoplay; fullscreen; encrypted-media">
+        </iframe>
+      `;
+      
+    } else {
+      // Other sports from StreamEast (scraped)
+      const response = await fetch(CORS_PROXY + game.url);
+      if (!response.ok) throw new Error('Failed to load game page');
+      
+      const htmlText = await response.text();
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(htmlText, 'text/html');
+      
+      // Find available servers
+      const serverLinks = doc.querySelectorAll('.se-alt-btn, .se-alt-streams-list a');
+      const servers = [];
+      serverLinks.forEach((link, index) => {
+        const serverUrl = link.href || link.getAttribute('href');
+        const serverName = link.textContent.trim() || `Server ${index + 1}`;
+        if (serverUrl && !serverUrl.includes('javascript:')) {
+          servers.push({ name: serverName, url: serverUrl });
+        }
+      });
+      
+      // Find the iframe in the player container
+      const iframe = doc.querySelector('#iframe, .new-player-container iframe, .se-player-container iframe');
+      
+      if (!iframe || !iframe.src) {
+        throw new Error('Stream not found');
+      }
+      
+      const iframeSrc = iframe.src;
+      
+      // Store servers for this slot
+      if (servers.length > 0) {
+        activeStreams[slotNumber] = { ...game, servers, currentServer: 0 };
+      } else {
+        activeStreams[slotNumber] = game;
+      }
+      
+      // Update slot with stream (WITH SANDBOX for StreamEast)
+      streamContent.innerHTML = `
+        <iframe 
+          src="${iframeSrc}"
+          width="100%"
+          height="100%"
+          frameborder="0"
+          scrolling="no"
+          allowfullscreen="yes"
+          sandbox="allow-scripts allow-same-origin allow-forms"
+          referrerpolicy="origin"
+          allow="autoplay; fullscreen; encrypted-media">
+        </iframe>
+      `;
+      
+      // Convert servers to streams format for consistency
+      allStreams = servers.map((server, idx) => ({
+        displayName: server.name,
+        serverUrl: server.url
+      }));
     }
-    
-    if (allStreams.length === 0) {
-      throw new Error('No streams available for this match');
-    }
-    
-    // Use the first stream by default
-    const primaryStream = allStreams[0];
-    
-    // Store streams for this slot
-    activeStreams[slotNumber] = { 
-      ...game, 
-      streams: allStreams, 
-      currentStreamIndex: 0 
-    };
-    
-    // Update slot with stream
-    streamContent.innerHTML = `
-      <iframe 
-        src="${primaryStream.embedUrl}"
-        width="100%"
-        height="100%"
-        frameborder="0"
-        scrolling="no"
-        allowfullscreen="yes"
-        referrerpolicy="origin"
-        allow="autoplay; fullscreen">
-      </iframe>
-    `;
     
     // Update header
     const streamTitle = slot.querySelector('.stream-title');
@@ -1081,58 +1306,137 @@ async function selectGame(game) {
 // Switch stream for a slot
 async function switchStream(slotNumber, streamIndex) {
   const streamData = activeStreams[slotNumber];
-  if (!streamData || !streamData.streams || !streamData.streams[streamIndex]) {
-    console.error('Stream not found:', slotNumber, streamIndex);
-    return;
-  }
   
-  const slot = document.querySelector(`.stream-slot[data-slot="${slotNumber}"]`);
-  if (!slot) return;
-  
-  const streamContent = slot.querySelector('.stream-content');
-  if (!streamContent) return;
-  
-  // Show loading
-  streamContent.innerHTML = '<div class="iframe-loading"><i class="fas fa-spinner fa-spin"></i></div>';
-  
-  try {
-    const stream = streamData.streams[streamIndex];
+  // Handle both API streams and scraped servers
+  if (streamData.sourceType === 'api') {
+    // API-based streams (Soccer)
+    if (!streamData || !streamData.streams || !streamData.streams[streamIndex]) {
+      console.error('Stream not found:', slotNumber, streamIndex);
+      return;
+    }
     
-    // Update iframe with new stream
-    streamContent.innerHTML = `
-      <iframe 
-        src="${stream.embedUrl}"
-        width="100%"
-        height="100%"
-        frameborder="0"
-        scrolling="no"
-        allowfullscreen="yes"
-        referrerpolicy="origin"
-        allow="autoplay; fullscreen">
-      </iframe>
-    `;
+    const slot = document.querySelector(`.stream-slot[data-slot="${slotNumber}"]`);
+    if (!slot) return;
     
-    // Update current stream index
-    activeStreams[slotNumber].currentStreamIndex = parseInt(streamIndex);
+    const streamContent = slot.querySelector('.stream-content');
+    if (!streamContent) return;
     
-    // Save to localStorage
-    saveStreamsToStorage();
+    // Show loading
+    streamContent.innerHTML = '<div class="iframe-loading"><i class="fas fa-spinner fa-spin"></i></div>';
     
-  } catch (error) {
-    console.error('Error switching stream:', error);
-    streamContent.innerHTML = `
-      <div class="empty-slot">
-        <div style="color: #ff4444; margin-bottom: 15px;">
-          <i class="fas fa-exclamation-triangle"></i><br>
-          Failed to load stream
+    try {
+      const stream = streamData.streams[streamIndex];
+      
+      // Update iframe with new stream (NO SANDBOX for API)
+      streamContent.innerHTML = `
+        <iframe 
+          src="${stream.embedUrl}"
+          width="100%"
+          height="100%"
+          frameborder="0"
+          scrolling="no"
+          allowfullscreen="yes"
+          referrerpolicy="origin"
+          allow="autoplay; fullscreen; encrypted-media">
+        </iframe>
+      `;
+      
+      // Update current stream index
+      activeStreams[slotNumber].currentStreamIndex = parseInt(streamIndex);
+      
+      // Save to localStorage
+      saveStreamsToStorage();
+      
+    } catch (error) {
+      console.error('Error switching stream:', error);
+      streamContent.innerHTML = `
+        <div class="empty-slot">
+          <div style="color: #ff4444; margin-bottom: 15px;">
+            <i class="fas fa-exclamation-triangle"></i><br>
+            Failed to load stream
+          </div>
         </div>
-      </div>
-    `;
+      `;
+      
+      // Revert selector
+      const selector = slot.querySelector('.server-selector');
+      if (selector && streamData.currentStreamIndex !== undefined) {
+        selector.value = streamData.currentStreamIndex;
+      }
+    }
+  } else {
+    // Scraped servers (Other sports)
+    if (!streamData || !streamData.servers || !streamData.servers[streamIndex]) {
+      console.error('Server not found:', slotNumber, streamIndex);
+      return;
+    }
     
-    // Revert selector
-    const selector = slot.querySelector('.server-selector');
-    if (selector && streamData.currentStreamIndex !== undefined) {
-      selector.value = streamData.currentStreamIndex;
+    const slot = document.querySelector(`.stream-slot[data-slot="${slotNumber}"]`);
+    if (!slot) return;
+    
+    const streamContent = slot.querySelector('.stream-content');
+    if (!streamContent) return;
+    
+    // Show loading
+    streamContent.innerHTML = '<div class="iframe-loading"><i class="fas fa-spinner fa-spin"></i></div>';
+    
+    try {
+      const server = streamData.servers[streamIndex];
+      
+      // Fetch the server page
+      const response = await fetch(CORS_PROXY + server.url);
+      if (!response.ok) throw new Error('Failed to load server page');
+      
+      const htmlText = await response.text();
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(htmlText, 'text/html');
+      
+      // Find the iframe
+      const iframe = doc.querySelector('#iframe, .new-player-container iframe, .se-player-container iframe');
+      
+      if (!iframe || !iframe.src) {
+        throw new Error('Stream not found on this server');
+      }
+      
+      const iframeSrc = iframe.src;
+      
+      // Update iframe (WITH SANDBOX for StreamEast)
+      streamContent.innerHTML = `
+        <iframe 
+          src="${iframeSrc}"
+          width="100%"
+          height="100%"
+          frameborder="0"
+          scrolling="no"
+          allowfullscreen="yes"
+          sandbox="allow-scripts allow-same-origin allow-forms"
+          referrerpolicy="origin"
+          allow="autoplay; fullscreen; encrypted-media">
+        </iframe>
+      `;
+      
+      // Update current server index
+      activeStreams[slotNumber].currentServer = parseInt(streamIndex);
+      
+      // Save to localStorage
+      saveStreamsToStorage();
+      
+    } catch (error) {
+      console.error('Error switching server:', error);
+      streamContent.innerHTML = `
+        <div class="empty-slot">
+          <div style="color: #ff4444; margin-bottom: 15px;">
+            <i class="fas fa-exclamation-triangle"></i><br>
+            Failed to load server
+          </div>
+        </div>
+      `;
+      
+      // Revert selector
+      const selector = slot.querySelector('.server-selector');
+      if (selector && streamData.currentServer !== undefined) {
+        selector.value = streamData.currentServer;
+      }
     }
   }
 }
