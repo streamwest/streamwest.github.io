@@ -773,13 +773,24 @@ async function selectGame(game) {
   streamContent.innerHTML = '<div class="iframe-loading"><i class="fas fa-spinner fa-spin"></i></div>';
   
   try {
-    // Fetch the game page to extract iframe src
+    // Fetch the game page to extract iframe src and available servers
     const response = await fetch(CORS_PROXY + game.url);
     if (!response.ok) throw new Error('Failed to load game page');
     
     const htmlText = await response.text();
     const parser = new DOMParser();
     const doc = parser.parseFromString(htmlText, 'text/html');
+    
+    // Find available servers
+    const serverLinks = doc.querySelectorAll('.se-alt-btn, .se-alt-streams-list a');
+    const servers = [];
+    serverLinks.forEach((link, index) => {
+      const serverUrl = link.href || link.getAttribute('href');
+      const serverName = link.textContent.trim() || `Server ${index + 1}`;
+      if (serverUrl && !serverUrl.includes('javascript:')) {
+        servers.push({ name: serverName, url: serverUrl });
+      }
+    });
     
     // Find the iframe in the player container
     const iframe = doc.querySelector('#iframe, .new-player-container iframe, .se-player-container iframe');
@@ -789,6 +800,13 @@ async function selectGame(game) {
     }
     
     const iframeSrc = iframe.src;
+    
+    // Store servers for this slot
+    if (servers.length > 0) {
+      activeStreams[slotNumber] = { ...game, servers, currentServer: 0 };
+    } else {
+      activeStreams[slotNumber] = game;
+    }
     
     // Update slot with stream
     streamContent.innerHTML = `
@@ -813,17 +831,29 @@ async function selectGame(game) {
     
     // Add controls
     const streamControls = slot.querySelector('.stream-controls');
-    streamControls.innerHTML = `
+    let controlsHTML = '';
+    
+    // Add server selector if multiple servers available
+    if (servers.length > 1) {
+      controlsHTML += `
+        <select class="control-btn server-selector" onchange="switchServer(${slotNumber}, this.value)" title="Switch server">
+          ${servers.map((server, idx) => `
+            <option value="${idx}">${server.name}</option>
+          `).join('')}
+        </select>
+      `;
+    }
+    
+    controlsHTML += `
       <button class="control-btn remove" onclick="removeStream(${slotNumber})" title="Remove stream">
         <i class="fas fa-times"></i>
       </button>
     `;
     
+    streamControls.innerHTML = controlsHTML;
+    
     // Mark slot as active
     slot.classList.add('active');
-    
-    // Store active stream
-    activeStreams[slotNumber] = game;
     
   } catch (error) {
     console.error('Error loading stream:', error);
@@ -838,6 +868,79 @@ async function selectGame(game) {
         </button>
       </div>
     `;
+  }
+}
+
+// Switch server for a stream
+async function switchServer(slotNumber, serverIndex) {
+  const streamData = activeStreams[slotNumber];
+  if (!streamData || !streamData.servers || !streamData.servers[serverIndex]) {
+    console.error('Server not found:', slotNumber, serverIndex);
+    return;
+  }
+  
+  const slot = document.querySelector(`.stream-slot[data-slot="${slotNumber}"]`);
+  if (!slot) return;
+  
+  const streamContent = slot.querySelector('.stream-content');
+  if (!streamContent) return;
+  
+  // Show loading
+  streamContent.innerHTML = '<div class="iframe-loading"><i class="fas fa-spinner fa-spin"></i></div>';
+  
+  try {
+    const server = streamData.servers[serverIndex];
+    
+    // Fetch the server page
+    const response = await fetch(CORS_PROXY + server.url);
+    if (!response.ok) throw new Error('Failed to load server page');
+    
+    const htmlText = await response.text();
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(htmlText, 'text/html');
+    
+    // Find the iframe
+    const iframe = doc.querySelector('#iframe, .new-player-container iframe, .se-player-container iframe');
+    
+    if (!iframe || !iframe.src) {
+      throw new Error('Stream not found on this server');
+    }
+    
+    const iframeSrc = iframe.src;
+    
+    // Update iframe
+    streamContent.innerHTML = `
+      <iframe 
+        src="${iframeSrc}"
+        width="100%"
+        height="100%"
+        frameborder="0"
+        scrolling="no"
+        allowfullscreen="yes"
+        sandbox="allow-scripts allow-same-origin"
+        referrerpolicy="origin">
+      </iframe>
+    `;
+    
+    // Update current server index
+    activeStreams[slotNumber].currentServer = parseInt(serverIndex);
+    
+  } catch (error) {
+    console.error('Error switching server:', error);
+    streamContent.innerHTML = `
+      <div class="empty-slot">
+        <div style="color: #ff4444; margin-bottom: 15px;">
+          <i class="fas fa-exclamation-triangle"></i><br>
+          Failed to load server
+        </div>
+      </div>
+    `;
+    
+    // Revert selector
+    const selector = slot.querySelector('.server-selector');
+    if (selector && streamData.currentServer !== undefined) {
+      selector.value = streamData.currentServer;
+    }
   }
 }
 
