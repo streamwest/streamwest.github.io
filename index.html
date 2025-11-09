@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>StreamWest | Multi-Stream Viewer</title>
+<title>Multi-Stream Viewer - Watch 4 Games at Once</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <style>
 * {
@@ -547,8 +547,7 @@ document.addEventListener('click', function(e) {
 }, true);
 
 // Configuration
-const CORS_PROXY = 'https://corsproxy.io/?';
-const GAMES_URL = 'https://v3.gostreameast.link/';
+const API_BASE = 'https://streamed.pk/api';
 
 // State
 let currentSlot = null;
@@ -588,57 +587,52 @@ function setupLayoutButtons() {
   });
 }
 
-// Load available games from the source
+// Load available games from the API
 async function loadAvailableGames() {
   const container = document.getElementById('gameListContainer');
   container.innerHTML = '<div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i><br>Loading games...</div>';
   
   try {
-    const response = await fetch(CORS_PROXY + GAMES_URL);
-    if (!response.ok) throw new Error('Failed to load games');
+    // Fetch live matches from the API
+    const response = await fetch(`${API_BASE}/matches/live`);
+    if (!response.ok) throw new Error('Failed to load matches');
     
-    const htmlText = await response.text();
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(htmlText, 'text/html');
+    const matches = await response.json();
     
-    // Parse games by category
-    const categories = [];
-    const categorySections = doc.querySelectorAll('.sports-category-area');
+    // Group matches by category (sport)
+    const categoriesMap = new Map();
     
-    categorySections.forEach(section => {
-      const categoryTitle = section.querySelector('.category-title-header h2')?.textContent.trim();
-      if (!categoryTitle) return;
+    matches.forEach(match => {
+      const category = match.category.charAt(0).toUpperCase() + match.category.slice(1);
       
-      const games = [];
-      const matchCards = section.querySelectorAll('.match-card');
-      
-      matchCards.forEach(card => {
-        const linkElement = card.querySelector('.match-title-link');
-        const statusElement = card.querySelector('.match-status-info');
-        
-        if (!linkElement) return;
-        
-        const title = linkElement.textContent.trim();
-        const url = linkElement.href;
-        
-        let isLive = false;
-        let statusText = 'Upcoming';
-        
-        if (statusElement) {
-          const liveBadge = statusElement.querySelector('.live-status-badge');
-          if (liveBadge) {
-            isLive = true;
-            statusText = 'LIVE';
-          }
-        }
-        
-        games.push({ title, url, isLive, statusText, category: categoryTitle });
-      });
-      
-      if (games.length > 0) {
-        categories.push({ name: categoryTitle, games });
+      if (!categoriesMap.has(category)) {
+        categoriesMap.set(category, []);
       }
+      
+      // Convert API match to our game format
+      const game = {
+        id: match.id,
+        title: match.title,
+        category: category,
+        isLive: true, // All matches from /live endpoint are live
+        statusText: 'LIVE',
+        date: match.date,
+        poster: match.poster,
+        teams: match.teams,
+        sources: match.sources // Keep sources for stream fetching
+      };
+      
+      categoriesMap.get(category).push(game);
     });
+    
+    // Convert map to array format
+    const categories = Array.from(categoriesMap.entries()).map(([name, games]) => ({
+      name,
+      games
+    }));
+    
+    // Sort by number of games (most popular categories first)
+    categories.sort((a, b) => b.games.length - a.games.length);
     
     availableGames = categories;
     renderGameList(categories);
@@ -786,51 +780,53 @@ async function selectGame(game) {
   streamContent.innerHTML = '<div class="iframe-loading"><i class="fas fa-spinner fa-spin"></i></div>';
   
   try {
-    // Fetch the game page to extract iframe src and available servers
-    const response = await fetch(CORS_PROXY + game.url);
-    if (!response.ok) throw new Error('Failed to load game page');
+    // Check if game has sources
+    if (!game.sources || game.sources.length === 0) {
+      throw new Error('No stream sources available for this match');
+    }
     
-    const htmlText = await response.text();
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(htmlText, 'text/html');
-    
-    // Find available servers
-    const serverLinks = doc.querySelectorAll('.se-alt-btn, .se-alt-streams-list a');
-    const servers = [];
-    serverLinks.forEach((link, index) => {
-      const serverUrl = link.href || link.getAttribute('href');
-      const serverName = link.textContent.trim() || `Server ${index + 1}`;
-      if (serverUrl && !serverUrl.includes('javascript:')) {
-        servers.push({ name: serverName, url: serverUrl });
+    // Fetch streams from all available sources
+    const allStreams = [];
+    for (const source of game.sources) {
+      try {
+        const response = await fetch(`${API_BASE}/stream/${source.source}/${source.id}`);
+        if (response.ok) {
+          const streams = await response.json();
+          // Add source info to each stream
+          streams.forEach(stream => {
+            stream.sourceName = source.source;
+            stream.displayName = `${stream.language} ${stream.hd ? 'HD' : 'SD'} (${source.source})`;
+          });
+          allStreams.push(...streams);
+        }
+      } catch (err) {
+        console.warn(`Failed to load streams from ${source.source}:`, err);
       }
-    });
-    
-    // Find the iframe in the player container
-    const iframe = doc.querySelector('#iframe, .new-player-container iframe, .se-player-container iframe');
-    
-    if (!iframe || !iframe.src) {
-      throw new Error('Stream not found');
     }
     
-    const iframeSrc = iframe.src;
-    
-    // Store servers for this slot
-    if (servers.length > 0) {
-      activeStreams[slotNumber] = { ...game, servers, currentServer: 0 };
-    } else {
-      activeStreams[slotNumber] = game;
+    if (allStreams.length === 0) {
+      throw new Error('No streams available for this match');
     }
+    
+    // Use the first stream by default
+    const primaryStream = allStreams[0];
+    
+    // Store streams for this slot
+    activeStreams[slotNumber] = { 
+      ...game, 
+      streams: allStreams, 
+      currentStreamIndex: 0 
+    };
     
     // Update slot with stream
     streamContent.innerHTML = `
       <iframe 
-        src="${iframeSrc}"
+        src="${primaryStream.embedUrl}"
         width="100%"
         height="100%"
         frameborder="0"
         scrolling="no"
         allowfullscreen="yes"
-        sandbox="allow-scripts allow-same-origin allow-forms"
         referrerpolicy="origin"
         allow="autoplay; fullscreen">
       </iframe>
@@ -847,12 +843,12 @@ async function selectGame(game) {
     const streamControls = slot.querySelector('.stream-controls');
     let controlsHTML = '';
     
-    // Add server selector if multiple servers available
-    if (servers.length > 1) {
+    // Add stream selector if multiple streams available
+    if (allStreams.length > 1) {
       controlsHTML += `
-        <select class="control-btn server-selector" onchange="switchServer(${slotNumber}, this.value)" title="Switch server">
-          ${servers.map((server, idx) => `
-            <option value="${idx}">${server.name}</option>
+        <select class="control-btn server-selector" onchange="switchStream(${slotNumber}, this.value)" title="Switch stream">
+          ${allStreams.map((stream, idx) => `
+            <option value="${idx}">${stream.displayName}</option>
           `).join('')}
         </select>
       `;
@@ -885,11 +881,11 @@ async function selectGame(game) {
   }
 }
 
-// Switch server for a stream
-async function switchServer(slotNumber, serverIndex) {
+// Switch stream for a slot
+async function switchStream(slotNumber, streamIndex) {
   const streamData = activeStreams[slotNumber];
-  if (!streamData || !streamData.servers || !streamData.servers[serverIndex]) {
-    console.error('Server not found:', slotNumber, serverIndex);
+  if (!streamData || !streamData.streams || !streamData.streams[streamIndex]) {
+    console.error('Stream not found:', slotNumber, streamIndex);
     return;
   }
   
@@ -903,58 +899,40 @@ async function switchServer(slotNumber, serverIndex) {
   streamContent.innerHTML = '<div class="iframe-loading"><i class="fas fa-spinner fa-spin"></i></div>';
   
   try {
-    const server = streamData.servers[serverIndex];
+    const stream = streamData.streams[streamIndex];
     
-    // Fetch the server page
-    const response = await fetch(CORS_PROXY + server.url);
-    if (!response.ok) throw new Error('Failed to load server page');
-    
-    const htmlText = await response.text();
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(htmlText, 'text/html');
-    
-    // Find the iframe
-    const iframe = doc.querySelector('#iframe, .new-player-container iframe, .se-player-container iframe');
-    
-    if (!iframe || !iframe.src) {
-      throw new Error('Stream not found on this server');
-    }
-    
-    const iframeSrc = iframe.src;
-    
-    // Update iframe
+    // Update iframe with new stream
     streamContent.innerHTML = `
       <iframe 
-        src="${iframeSrc}"
+        src="${stream.embedUrl}"
         width="100%"
         height="100%"
         frameborder="0"
         scrolling="no"
         allowfullscreen="yes"
-        sandbox="allow-scripts allow-same-origin allow-forms"
         referrerpolicy="origin"
         allow="autoplay; fullscreen">
       </iframe>
     `;
     
-    // Update current server index
-    activeStreams[slotNumber].currentServer = parseInt(serverIndex);
+    // Update current stream index
+    activeStreams[slotNumber].currentStreamIndex = parseInt(streamIndex);
     
   } catch (error) {
-    console.error('Error switching server:', error);
+    console.error('Error switching stream:', error);
     streamContent.innerHTML = `
       <div class="empty-slot">
         <div style="color: #ff4444; margin-bottom: 15px;">
           <i class="fas fa-exclamation-triangle"></i><br>
-          Failed to load server
+          Failed to load stream
         </div>
       </div>
     `;
     
     // Revert selector
     const selector = slot.querySelector('.server-selector');
-    if (selector && streamData.currentServer !== undefined) {
-      selector.value = streamData.currentServer;
+    if (selector && streamData.currentStreamIndex !== undefined) {
+      selector.value = streamData.currentStreamIndex;
     }
   }
 }
