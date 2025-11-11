@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Streamwest | Multi-Stream Viewer</title>
+<title>Multi-Stream Viewer - Watch 4 Games at Once</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <style>
 * {
@@ -200,6 +200,73 @@ html, body {
 .control-btn.remove:hover {
   background: #ff4444;
   color: white;
+}
+
+/* Drag handle - make entire header draggable */
+.stream-header {
+  cursor: grab;
+  user-select: none;
+}
+
+.stream-header:active {
+  cursor: grabbing;
+}
+
+.stream-header * {
+  pointer-events: none;
+}
+
+.stream-header button,
+.stream-header select {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.stream-header button:active,
+.stream-header select:active {
+  cursor: pointer;
+}
+
+.drag-handle {
+  background: transparent;
+  border: none;
+  color: #9aa6b2;
+  padding: 6px;
+  margin-right: 6px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  pointer-events: none;
+}
+
+/* Picture-in-Picture button */
+.control-btn.pip {
+  color: #00FFAA;
+}
+
+.control-btn.pip:hover {
+  background: #00FFAA;
+  color: #0D1117;
+}
+
+.control-btn.pip.active {
+  background: #FF4C4C;
+  color: white;
+}
+
+.control-btn.pip.active:hover {
+  background: #ff6666;
+}
+
+/* Visual feedback while dragging */
+.stream-slot {
+  transition: transform 180ms ease, box-shadow 180ms ease, opacity 180ms ease;
+}
+.stream-slot.dragging {
+  opacity: 0.85;
+  transform: scale(0.995);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+  z-index: 50;
 }
 
 .stream-content {
@@ -543,19 +610,29 @@ let currentSlot = null;
 let availableGames = [];
 let activeStreams = {};
 let nextSlotId = 1;
+let pipWindows = {}; // Track PiP windows by slot number
 
 // Initialize
 document.addEventListener('DOMContentLoaded', function() {
   loadAvailableGames();
   loadSavedStreams();
   updateGridLayout();
+  // Initialize delegated drag-and-drop once
+  setupDragAndDrop();
 });
 
 // Save streams to localStorage
 function saveStreamsToStorage() {
   try {
+    // Save streams in the current DOM order so reordering persists
+    const grid = document.getElementById('streamGrid');
+    const slots = Array.from(grid.querySelectorAll('.stream-slot'));
     const streamsToSave = {};
-    for (const [slotId, streamData] of Object.entries(activeStreams)) {
+
+    slots.forEach(slotEl => {
+      const slotId = slotEl.getAttribute('data-slot');
+      const streamData = activeStreams[slotId];
+      if (!streamData) return;
       // Only save essential data, not the full streams array
       streamsToSave[slotId] = {
         id: streamData.id,
@@ -563,14 +640,89 @@ function saveStreamsToStorage() {
         category: streamData.category,
         isLive: streamData.isLive,
         sources: streamData.sources,
-        currentStreamIndex: streamData.currentStreamIndex || 0
+        url: streamData.url, // scraped source page url when available
+        currentStreamIndex: streamData.currentStreamIndex || 0,
+        sourceType: streamData.sourceType || 'api'
       };
-    }
+    });
+
     localStorage.setItem(STORAGE_KEY, JSON.stringify(streamsToSave));
     localStorage.setItem(STORAGE_NEXTID_KEY, nextSlotId.toString());
   } catch (error) {
     console.error('Error saving streams to storage:', error);
   }
+}
+
+// Setup drag-and-drop reordering for stream slots (delegated)
+function setupDragAndDrop() {
+  const grid = document.getElementById('streamGrid');
+  if (!grid) return;
+  // Avoid attaching multiple times
+  if (grid._dndInitialized) return;
+  grid._dndInitialized = true;
+
+  let draggingSlot = null;
+
+  grid.addEventListener('dragstart', (e) => {
+    // Only start drag when the stream-header (or its non-interactive children) is dragged
+    const header = e.target.closest('.stream-header');
+    if (!header) {
+      e.preventDefault();
+      return;
+    }
+    // Don't drag if user is interacting with buttons/selects
+    if (e.target.tagName === 'BUTTON' || e.target.tagName === 'SELECT' || 
+        e.target.closest('button') || e.target.closest('select')) {
+      e.preventDefault();
+      return;
+    }
+    const slot = header.closest('.stream-slot');
+    if (!slot) return;
+    draggingSlot = slot;
+    slot.classList.add('dragging');
+    try { e.dataTransfer.setData('text/plain', slot.dataset.slot); } catch (err) {}
+    e.dataTransfer.effectAllowed = 'move';
+  });
+
+  grid.addEventListener('dragend', (e) => {
+    if (draggingSlot) draggingSlot.classList.remove('dragging');
+    draggingSlot = null;
+    saveStreamsToStorage();
+    updateGridLayout();
+  });
+
+  grid.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    if (!draggingSlot) return;
+    const afterElement = getDragAfterElement(grid, e.clientY);
+    if (afterElement == null) {
+      grid.appendChild(draggingSlot);
+    } else {
+      grid.insertBefore(draggingSlot, afterElement);
+    }
+  });
+
+  grid.addEventListener('drop', (e) => {
+    e.preventDefault();
+    if (draggingSlot) draggingSlot.classList.remove('dragging');
+    draggingSlot = null;
+    saveStreamsToStorage();
+    updateGridLayout();
+  });
+}
+
+function getDragAfterElement(container, y) {
+  const draggableElements = [...container.querySelectorAll('.stream-slot:not(.dragging)')];
+
+  return draggableElements.reduce((closest, child) => {
+    const box = child.getBoundingClientRect();
+    const offset = y - box.top - box.height / 2;
+    if (offset < 0 && offset > closest.offset) {
+      return { offset: offset, element: child };
+    } else {
+      return closest;
+    }
+  }, { offset: Number.NEGATIVE_INFINITY }).element || null;
 }
 
 // Load saved streams from localStorage
@@ -595,7 +747,8 @@ async function loadSavedStreams() {
       
       const slotHtml = `
         <div class="stream-slot" data-slot="${slotNumber}">
-          <div class="stream-header">
+          <div class="stream-header" draggable="true">
+            <button class="drag-handle" title="Drag to reorder"><i class="fas fa-grip-vertical"></i></button>
             <div class="stream-title">Stream ${slotNumber}</div>
             <div class="stream-controls">
               <button class="control-btn remove" onclick="removeStreamSlot(${slotNumber})" title="Remove slot">
@@ -615,7 +768,7 @@ async function loadSavedStreams() {
       await restoreStream(slotNumber, streamData);
     }
     
-    updateGridLayout();
+      updateGridLayout();
   } catch (error) {
     console.error('Error loading saved streams:', error);
   }
@@ -700,13 +853,16 @@ async function restoreStream(slotNumber, streamData) {
       }
       
       controlsHTML += `
-        <button class="control-btn remove" onclick="removeStream(${slotNumber})" title="Remove stream">
+        <button class="control-btn pip" onclick="enablePictureInPicture(${slotNumber})" title="Picture-in-Picture">
+          <i class="fas fa-external-link-alt"></i>
+        </button>
+        <button class="control-btn remove" onclick="removeStreamSlot(${slotNumber})" title="Remove stream">
           <i class="fas fa-times"></i>
         </button>
       `;
       
       streamControls.innerHTML = controlsHTML;
-      slot.classList.add('active');
+    slot.classList.add('active');
       
     } else {
       // Restore scraped stream (Other sports)
@@ -785,13 +941,16 @@ async function restoreStream(slotNumber, streamData) {
       }
       
       controlsHTML += `
-        <button class="control-btn remove" onclick="removeStream(${slotNumber})" title="Remove stream">
+        <button class="control-btn pip" onclick="enablePictureInPicture(${slotNumber})" title="Picture-in-Picture">
+          <i class="fas fa-external-link-alt"></i>
+        </button>
+        <button class="control-btn remove" onclick="removeStreamSlot(${slotNumber})" title="Remove stream">
           <i class="fas fa-times"></i>
         </button>
       `;
       
       streamControls.innerHTML = controlsHTML;
-      slot.classList.add('active');
+    slot.classList.add('active');
     }
     
   } catch (error) {
@@ -815,16 +974,17 @@ function addNewStreamSlot() {
   const grid = document.getElementById('streamGrid');
   const slotNumber = nextSlotId++;
   
-  const slotHtml = `
-    <div class="stream-slot" data-slot="${slotNumber}">
-      <div class="stream-header">
-        <div class="stream-title">Stream ${slotNumber}</div>
-        <div class="stream-controls">
-          <button class="control-btn remove" onclick="removeStreamSlot(${slotNumber})" title="Remove slot">
-            <i class="fas fa-times"></i>
-          </button>
-        </div>
-      </div>
+      const slotHtml = `
+        <div class="stream-slot" data-slot="${slotNumber}">
+          <div class="stream-header" draggable="true">
+            <button class="drag-handle" title="Drag to reorder"><i class="fas fa-grip-vertical"></i></button>
+            <div class="stream-title">Stream ${slotNumber}</div>
+            <div class="stream-controls">
+              <button class="control-btn remove" onclick="removeStreamSlot(${slotNumber})" title="Remove slot">
+                <i class="fas fa-times"></i>
+              </button>
+            </div>
+          </div>
       <div class="stream-content">
         <div class="empty-slot">
           <button class="add-stream-btn" onclick="openGameSelector(${slotNumber})">
@@ -1109,6 +1269,229 @@ function closeGameSelector() {
   currentSlot = null;
 }
 
+// Enable Picture-in-Picture for a stream slot
+async function enablePictureInPicture(slotNumber) {
+  const slot = document.querySelector(`.stream-slot[data-slot="${slotNumber}"]`);
+  if (!slot) return;
+  
+  // Check if already in PiP mode
+  if (pipWindows[slotNumber] && !pipWindows[slotNumber].closed) {
+    // Bring existing PiP window to front
+    pipWindows[slotNumber].focus();
+    return;
+  }
+  
+  const iframe = slot.querySelector('iframe');
+  if (!iframe) {
+    alert('No stream loaded in this slot');
+    return;
+  }
+  
+  const streamContent = slot.querySelector('.stream-content');
+  const iframeSrc = iframe.src;
+  const streamData = activeStreams[slotNumber];
+  
+  try {
+    // Check if Document Picture-in-Picture API is available (Chrome 116+)
+    if ('documentPictureInPicture' in window) {
+      const pipWindow = await window.documentPictureInPicture.requestWindow({
+        width: 640,
+        height: 360,
+      });
+      
+      // Store reference to PiP window
+      pipWindows[slotNumber] = pipWindow;
+      
+      // Copy styles to the PiP window
+      [...document.styleSheets].forEach((styleSheet) => {
+        try {
+          const cssRules = [...styleSheet.cssRules].map(rule => rule.cssText).join('');
+          const style = pipWindow.document.createElement('style');
+          style.textContent = cssRules;
+          pipWindow.document.head.appendChild(style);
+        } catch (e) {
+          const link = pipWindow.document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = styleSheet.href;
+          pipWindow.document.head.appendChild(link);
+        }
+      });
+      
+      // Set title
+      pipWindow.document.title = streamData ? streamData.title : `Stream ${slotNumber}`;
+      
+      // Create iframe in PiP window
+      pipWindow.document.body.style.margin = '0';
+      pipWindow.document.body.style.padding = '0';
+      pipWindow.document.body.style.overflow = 'hidden';
+      pipWindow.document.body.style.background = '#000';
+      
+      const pipIframe = pipWindow.document.createElement('iframe');
+      pipIframe.src = iframeSrc;
+      pipIframe.style.width = '100%';
+      pipIframe.style.height = '100%';
+      pipIframe.style.border = 'none';
+      pipIframe.setAttribute('allowfullscreen', 'true');
+      pipIframe.setAttribute('allow', 'autoplay; fullscreen; encrypted-media');
+      
+      // Apply sandbox if original iframe has it
+      if (iframe.hasAttribute('sandbox')) {
+        pipIframe.setAttribute('sandbox', iframe.getAttribute('sandbox'));
+      }
+      
+      pipWindow.document.body.appendChild(pipIframe);
+      
+      // Pause main stream (replace with placeholder)
+      streamContent.innerHTML = `
+        <div class="empty-slot">
+          <div style="color: #00FFAA; margin-bottom: 15px;">
+            <i class="fas fa-external-link-alt" style="font-size: 48px;"></i><br><br>
+            <strong>Stream in Picture-in-Picture Mode</strong>
+          </div>
+          <button class="add-stream-btn" onclick="closePictureInPicture(${slotNumber})" style="background: #FF4C4C;">
+            <i class="fas fa-times"></i> Close PiP & Resume Here
+          </button>
+        </div>
+      `;
+      
+      // Update button state
+      updatePipButtonState(slotNumber, true);
+      
+      // Monitor PiP window closure to restore stream
+      const checkClosed = setInterval(() => {
+        if (pipWindow.closed) {
+          clearInterval(checkClosed);
+          restorePipStream(slotNumber, iframeSrc, iframe.hasAttribute('sandbox') ? iframe.getAttribute('sandbox') : null);
+          updatePipButtonState(slotNumber, false);
+          delete pipWindows[slotNumber];
+        }
+      }, 500);
+      
+    } else {
+      // Fallback: open in a new window with minimal chrome
+      const windowName = `StreamPiP_${slotNumber}_${Date.now()}`; // Unique name for each window
+      const pipWindow = window.open(
+        '', 
+        windowName,
+        'width=640,height=360,menubar=no,toolbar=no,location=no,status=no'
+      );
+      
+      if (pipWindow) {
+        // Store reference
+        pipWindows[slotNumber] = pipWindow;
+        
+        pipWindow.document.write(`
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>${streamData ? streamData.title : `Stream ${slotNumber}`}</title>
+            <style>
+              body { margin: 0; padding: 0; overflow: hidden; background: #000; }
+              iframe { width: 100%; height: 100vh; border: none; }
+            </style>
+          </head>
+          <body>
+            <iframe 
+              src="${iframeSrc}" 
+              allowfullscreen 
+              allow="autoplay; fullscreen; encrypted-media"
+              ${iframe.hasAttribute('sandbox') ? `sandbox="${iframe.getAttribute('sandbox')}"` : ''}
+            ></iframe>
+          </body>
+          </html>
+        `);
+        pipWindow.document.close();
+        
+        // Pause main stream (replace with placeholder)
+        streamContent.innerHTML = `
+          <div class="empty-slot">
+            <div style="color: #00FFAA; margin-bottom: 15px;">
+              <i class="fas fa-external-link-alt" style="font-size: 48px;"></i><br><br>
+              <strong>Stream in Picture-in-Picture Mode</strong>
+            </div>
+            <button class="add-stream-btn" onclick="closePictureInPicture(${slotNumber})" style="background: #FF4C4C;">
+              <i class="fas fa-times"></i> Close PiP & Resume Here
+            </button>
+          </div>
+        `;
+        
+        // Update button state
+        updatePipButtonState(slotNumber, true);
+        
+        // Monitor window closure
+        const checkClosed = setInterval(() => {
+          if (pipWindow.closed) {
+            clearInterval(checkClosed);
+            restorePipStream(slotNumber, iframeSrc, iframe.hasAttribute('sandbox') ? iframe.getAttribute('sandbox') : null);
+            updatePipButtonState(slotNumber, false);
+            delete pipWindows[slotNumber];
+          }
+        }, 500);
+        
+      } else {
+        alert('Please allow pop-ups for Picture-in-Picture mode');
+      }
+    }
+  } catch (error) {
+    console.error('Picture-in-Picture error:', error);
+    alert('Picture-in-Picture is not supported or blocked. Please check your browser settings.');
+  }
+}
+
+// Close PiP window and restore stream
+function closePictureInPicture(slotNumber) {
+  if (pipWindows[slotNumber] && !pipWindows[slotNumber].closed) {
+    pipWindows[slotNumber].close();
+    delete pipWindows[slotNumber];
+  }
+}
+
+// Update PiP button state
+function updatePipButtonState(slotNumber, isActive) {
+  const slot = document.querySelector(`.stream-slot[data-slot="${slotNumber}"]`);
+  if (!slot) return;
+  
+  const pipButton = slot.querySelector('.control-btn.pip');
+  if (pipButton) {
+    if (isActive) {
+      pipButton.classList.add('active');
+      pipButton.title = 'Stream in PiP - Click to close';
+      pipButton.setAttribute('onclick', `closePictureInPicture(${slotNumber})`);
+    } else {
+      pipButton.classList.remove('active');
+      pipButton.title = 'Picture-in-Picture';
+      pipButton.setAttribute('onclick', `enablePictureInPicture(${slotNumber})`);
+    }
+  }
+}
+
+// Restore stream when PiP is closed
+function restorePipStream(slotNumber, iframeSrc, sandboxAttr) {
+  const slot = document.querySelector(`.stream-slot[data-slot="${slotNumber}"]`);
+  if (!slot) return;
+  
+  const streamContent = slot.querySelector('.stream-content');
+  if (!streamContent) return;
+  
+  // Check if user manually closed the slot
+  if (!slot.parentElement) return;
+  
+  // Restore iframe
+  streamContent.innerHTML = `
+    <iframe 
+      src="${iframeSrc}"
+      width="100%"
+      height="100%"
+      frameborder="0"
+      scrolling="no"
+      allowfullscreen="yes"
+      ${sandboxAttr ? `sandbox="${sandboxAttr}"` : ''}
+      referrerpolicy="origin"
+      allow="autoplay; fullscreen; encrypted-media">
+    </iframe>
+  `;
+}
+
 // Select a game and load its stream
 async function selectGame(game) {
   console.log('selectGame called with slot:', currentSlot, 'game:', game.title);
@@ -1274,7 +1657,10 @@ async function selectGame(game) {
     }
     
     controlsHTML += `
-      <button class="control-btn remove" onclick="removeStream(${slotNumber})" title="Remove stream">
+      <button class="control-btn pip" onclick="enablePictureInPicture(${slotNumber})" title="Picture-in-Picture">
+        <i class="fas fa-external-link-alt"></i>
+      </button>
+      <button class="control-btn remove" onclick="removeStreamSlot(${slotNumber})" title="Remove stream">
         <i class="fas fa-times"></i>
       </button>
     `;
