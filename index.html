@@ -585,291 +585,18 @@ html, body {
 </div>
 
 <script>
-// ========== ENHANCED POPUP BLOCKING (uBlock Origin-style for Streamed.su) ==========
+// Block all popups
+window.open = function() { return null; };
 
-// 1. ULTRA-EARLY BLOCKING - Lock window.open permanently
-(function() {
-  'use strict';
-  
-  // Completely lock window.open
-  Object.defineProperty(window, 'open', {
-    value: function() { 
-      console.warn('🛡️ Blocked: window.open attempt');
-      return null; 
-    },
-    writable: false,
-    configurable: false
-  });
-  
-  // Block modal dialogs
-  window.showModalDialog = function() { return null; };
-  window.alert = function() {};
-  window.confirm = function() { return false; };
-  window.prompt = function() { return null; };
-  
-  // Intercept eval (can be used for obfuscated popups)
-  const nativeEval = window.eval;
-  window.eval = function(code) {
-    if (typeof code === 'string') {
-      const suspiciousPatterns = [
-        'window.open',
-        'location.href',
-        'location.replace',
-        'document.write',
-        '_blank'
-      ];
-      
-      if (suspiciousPatterns.some(pattern => code.includes(pattern))) {
-        console.warn('🛡️ Blocked: suspicious eval code');
-        return null;
-      }
-    }
-    return nativeEval(code);
-  };
-})();
-
-// 2. AGGRESSIVE EVENT INTERCEPTION (capture phase = highest priority)
+// Prevent target="_blank" links from opening in new windows
 document.addEventListener('click', function(e) {
-  const element = e.target;
-  const tag = element.tagName?.toLowerCase();
-  
-  // Allow our own PiP functionality
-  if (element.closest('.control-btn.pip') || element.closest('.add-stream-btn')) {
-    return;
-  }
-  
-  // Block _blank links
-  if (tag === 'a') {
-    const target = element.target || element.getAttribute('target');
-    if (target === '_blank') {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      console.warn('🛡️ Blocked: _blank link');
-      return false;
-    }
-  }
-  
-  // Block onclick with suspicious patterns
-  const onclick = element.getAttribute('onclick') || '';
-  if (onclick && (onclick.includes('window.open') || onclick.includes('open(') || onclick.includes('location'))) {
+  const target = e.target.closest('a');
+  if (target && target.target === '_blank') {
     e.preventDefault();
-    e.stopImmediatePropagation();
-    console.warn('🛡️ Blocked: suspicious onclick');
-    return false;
-  }
-  
-  // Block data-href redirects
-  if (element.hasAttribute('data-href') || element.hasAttribute('data-url')) {
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    console.warn('🛡️ Blocked: data-href redirect');
+    e.stopPropagation();
     return false;
   }
 }, true);
-
-// Also block mousedown (popups sometimes use this instead of click)
-document.addEventListener('mousedown', function(e) {
-  const element = e.target;
-  
-  // Allow our own controls
-  if (element.closest('.control-btn') || element.closest('.add-stream-btn') || element.closest('.stream-header')) {
-    return;
-  }
-  
-  // Block suspicious mousedown events from iframes
-  if (element.tagName === 'IFRAME' || element.closest('iframe')) {
-    const onclick = element.getAttribute('onmousedown') || '';
-    if (onclick.includes('open')) {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      console.warn('🛡️ Blocked: suspicious mousedown on iframe');
-      return false;
-    }
-  }
-}, true);
-
-// 3. MUTATION OBSERVER - Watch for dynamically injected popups
-const popupObserver = new MutationObserver(function(mutations) {
-  mutations.forEach(function(mutation) {
-    mutation.addedNodes.forEach(function(node) {
-      if (node.nodeType === 1) {
-        // Block suspicious iframes
-        if (node.tagName === 'IFRAME') {
-          const src = node.src || '';
-          const blockedPatterns = [
-            'popads', 'popcash', 'propeller', 'exoclick', 'adcash', 'clickadu',
-            '/ad.', '/ads/', '/banner', '/popup', 'affiliate', 'track',
-            'doubleclick', 'advertising', 'adserver'
-          ];
-          
-          if (blockedPatterns.some(pattern => src.toLowerCase().includes(pattern))) {
-            console.warn('🛡️ Blocked: suspicious iframe', src);
-            node.remove();
-            return;
-          }
-          
-          // Block iframes without our expected sources
-          if (src && !src.includes('streamed') && !src.includes('gostreameast') && 
-              !node.closest('.stream-content') && !node.closest('#pip-grid')) {
-            console.warn('🛡️ Blocked: unauthorized iframe', src);
-            node.remove();
-            return;
-          }
-        }
-        
-        // Block suspicious scripts
-        if (node.tagName === 'SCRIPT') {
-          const src = node.src || '';
-          const content = node.textContent || '';
-          
-          const suspiciousPatterns = [
-            'popunder', 'pop-under', 'window.open', 
-            'onclick="open', 'adsbygoogle', 'googlesyndication'
-          ];
-          
-          if (suspiciousPatterns.some(pattern => 
-              src.includes(pattern) || content.includes(pattern))) {
-            console.warn('🛡️ Blocked: suspicious script');
-            node.remove();
-            return;
-          }
-        }
-      }
-    });
-  });
-});
-
-// Start observing after DOM is ready
-setTimeout(() => {
-  popupObserver.observe(document.documentElement, {
-    childList: true,
-    subtree: true
-  });
-}, 100);
-
-// 4. INTERCEPT IFRAME CREATION
-const originalCreateElement = document.createElement;
-document.createElement = function(tagName) {
-  const element = originalCreateElement.call(document, tagName);
-  
-  if (tagName.toLowerCase() === 'iframe') {
-    const srcObserver = new MutationObserver(function(mutations) {
-      mutations.forEach(function(mutation) {
-        if (mutation.type === 'attributes' && mutation.attributeName === 'src') {
-          const src = element.src;
-          const blockedDomains = [
-            'popads', 'popcash', 'propeller', 'exoclick', 'adcash',
-            'doubleclick', 'advertising', 'adserver'
-          ];
-          
-          if (blockedDomains.some(domain => src.toLowerCase().includes(domain))) {
-            console.warn('🛡️ Blocked: iframe src change to ad domain', src);
-            element.src = 'about:blank';
-            element.remove();
-          }
-        }
-      });
-    });
-    
-    srcObserver.observe(element, { attributes: true });
-  }
-  
-  return element;
-};
-
-// 5. BEFOREUNLOAD/UNLOAD PREVENTION
-window.addEventListener('beforeunload', function(e) {
-  delete e.returnValue;
-}, true);
-
-window.addEventListener('unload', function(e) {
-  e.preventDefault();
-  e.stopPropagation();
-}, true);
-
-// 6. FOCUS/BLUR DETECTION (popunders steal focus)
-let lastFocusTime = Date.now();
-window.addEventListener('blur', function() {
-  const timeSinceLastFocus = Date.now() - lastFocusTime;
-  if (timeSinceLastFocus < 100) {
-    console.warn('🛡️ Blocked: potential popunder (focus stolen)');
-    setTimeout(() => window.focus(), 10);
-  }
-}, true);
-
-window.addEventListener('focus', function() {
-  lastFocusTime = Date.now();
-}, true);
-
-// 7. LOCATION CHANGE INTERCEPTION (with error handling)
-try {
-  const originalLocationSetter = Object.getOwnPropertyDescriptor(window.location, 'href').set;
-  if (originalLocationSetter) {
-    Object.defineProperty(window.location, 'href', {
-      set: function(value) {
-        // Allow same-origin and relative URLs
-        if (value.startsWith(window.location.origin) || value.startsWith('/') || value.startsWith('#')) {
-          return originalLocationSetter.call(this, value);
-        }
-        console.warn('🛡️ Blocked: suspicious location.href change to', value);
-        return value;
-      },
-      configurable: true
-    });
-  }
-} catch (e) {
-  console.warn('Could not intercept location.href:', e.message);
-}
-
-// Block location.replace too
-try {
-  const originalReplace = window.location.replace;
-  window.location.replace = function(url) {
-    if (url.startsWith(window.location.origin) || url.startsWith('/')) {
-      return originalReplace.call(this, url);
-    }
-    console.warn('🛡️ Blocked: location.replace to', url);
-    return;
-  };
-} catch (e) {
-  console.warn('Could not intercept location.replace:', e.message);
-}
-
-// 8. CONTEXTMENU BLOCKING (right-click popups)
-document.addEventListener('contextmenu', function(e) {
-  // Allow on our own UI elements
-  if (e.target.closest('.stream-controls') || e.target.closest('.stream-header')) {
-    return;
-  }
-  
-  // Block on iframes
-  if (e.target.tagName === 'IFRAME' || e.target.closest('iframe')) {
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    return false;
-  }
-}, true);
-
-// 9. VISIBILITY CHANGE DETECTION
-document.addEventListener('visibilitychange', function() {
-  if (document.hidden) {
-    // Page is hidden - could be popup attempt
-    console.warn('🛡️ Monitoring: page visibility changed');
-  }
-});
-
-// 10. INTERCEPT NAVIGATION ATTEMPTS
-window.addEventListener('hashchange', function(e) {
-  // Prevent hash-based redirect tricks
-  const newHash = window.location.hash;
-  if (newHash.includes('redirect') || newHash.includes('popup')) {
-    console.warn('🛡️ Blocked: suspicious hash change', newHash);
-    e.preventDefault();
-    history.back();
-  }
-}, true);
-
-// ========== ORIGINAL CODE ==========
 
 // Configuration
 const API_BASE = 'https://streamed.pk/api';
@@ -878,13 +605,12 @@ const STREAMEAST_URL = 'https://v3.gostreameast.link/';
 const STORAGE_KEY = 'multistream_active_streams';
 const STORAGE_NEXTID_KEY = 'multistream_next_slot_id';
 
-// State - DECLARE BEFORE ANY USAGE
+// State
 let currentSlot = null;
 let availableGames = [];
 let activeStreams = {};
 let nextSlotId = 1;
-let pipWindow = null; // Single shared PiP window
-let pipStreams = {}; // Track streams in PiP by slot number
+let pipWindows = {}; // Track PiP windows by slot number
 
 // Initialize
 document.addEventListener('DOMContentLoaded', function() {
@@ -1302,25 +1028,25 @@ async function loadAvailableGames() {
   try {
     const categoriesMap = new Map();
     
-    // 1. Fetch Soccer and Basketball from Streamed.pk API
+    // 1. Fetch Soccer from Streamed.pk API
     try {
       const response = await fetch(`${API_BASE}/matches/live`);
       if (response.ok) {
         const matches = await response.json();
         
         matches.forEach(match => {
-          const categoryLower = match.category.toLowerCase();
-          
-          // Include soccer/football and basketball from Streamed API
-          if (categoryLower === 'football' || categoryLower === 'soccer') {
-            if (!categoriesMap.has('Soccer (Contains popups)')) {
-              categoriesMap.set('Soccer (Contains popups)', []);
+          // Only include soccer/football from Streamed API
+          if (match.category.toLowerCase() === 'football' || 
+              match.category.toLowerCase() === 'soccer') {
+            
+            if (!categoriesMap.has('Soccer')) {
+              categoriesMap.set('Soccer', []);
             }
             
             const game = {
               id: match.id,
               title: match.title,
-              category: 'Soccer (Contains popups)',
+              category: 'Soccer',
               isLive: true,
               statusText: 'LIVE',
               date: match.date,
@@ -1330,29 +1056,7 @@ async function loadAvailableGames() {
               sourceType: 'api' // Mark as API source
             };
             
-            categoriesMap.get('Soccer (Contains popups)').push(game);
-          } else if (categoryLower === 'basketball') {
-            // All basketball from streamed.pk goes to College Basketball
-            const basketballCategory = 'College Basketball (Contains popups)';
-            
-            if (!categoriesMap.has(basketballCategory)) {
-              categoriesMap.set(basketballCategory, []);
-            }
-            
-            const game = {
-              id: match.id,
-              title: match.title,
-              category: basketballCategory,
-              isLive: true,
-              statusText: 'LIVE',
-              date: match.date,
-              poster: match.poster,
-              teams: match.teams,
-              sources: match.sources,
-              sourceType: 'api' // Mark as API source
-            };
-            
-            categoriesMap.get(basketballCategory).push(game);
+            categoriesMap.get('Soccer').push(game);
           }
         });
       }
@@ -1379,9 +1083,8 @@ async function loadAvailableGames() {
               categoryTitle.toLowerCase() === 'football' ||
               categoryTitle.toLowerCase() === 'nfl') {
             categoryTitle = 'NFL';
-          } else if (categoryTitle.toLowerCase() === 'soccer' || 
-                     categoryTitle.toLowerCase().includes('basketball')) {
-            // Skip soccer and basketball from StreamEast, we already got them from API
+          } else if (categoryTitle.toLowerCase() === 'soccer') {
+            // Skip soccer from StreamEast, we already got it from API
             return;
           }
           
@@ -1436,28 +1139,8 @@ async function loadAvailableGames() {
       games
     }));
     
-    // Custom sort: prioritize certain categories, then by game count
-    categories.sort((a, b) => {
-      // Define priority order for specific categories
-      const priority = {
-        'NFL': 1,
-        'NBA': 2,
-        'College Basketball (Contains popups)': 3,
-        'NHL': 4,
-        'MLB': 5,
-        'Soccer (Contains popups)': 6
-      };
-      
-      const aPriority = priority[a.name] || 999;
-      const bPriority = priority[b.name] || 999;
-      
-      if (aPriority !== bPriority) {
-        return aPriority - bPriority;
-      }
-      
-      // If same priority, sort by number of games
-      return b.games.length - a.games.length;
-    });
+    // Sort by number of games (most popular categories first)
+    categories.sort((a, b) => b.games.length - a.games.length);
     
     availableGames = categories;
     renderGameList(categories);
