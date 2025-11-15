@@ -1038,7 +1038,7 @@ async function loadAvailableGames() {
           const category = match.category.toLowerCase();
           
           // Include soccer/football from Streamed API
-          if (category === 'football' || category === 'soccer') {
+          if (category === 'football') {
             if (!categoriesMap.has('Soccer (Contains popups)')) {
               categoriesMap.set('Soccer (Contains popups)', []);
             }
@@ -1060,7 +1060,7 @@ async function loadAvailableGames() {
             categoriesMap.get('Soccer (Contains popups)').push(game);
           }
           // Include basketball from Streamed API - mark as College Basketball
-          else if (category === 'basketball' || category === 'college basketball') {
+          else if (category === 'basketball') {
             if (!categoriesMap.has('College Basketball (Contains popups)')) {
               categoriesMap.set('College Basketball (Contains popups)', []);
             }
@@ -1081,6 +1081,27 @@ async function loadAvailableGames() {
             
             categoriesMap.get('College Basketball (Contains popups)').push(game);
           }
+          else if (category === 'american-football') {
+            if (!categoriesMap.has('All Football (Contains popups)')) {
+              categoriesMap.set('All Football (Contains popups)', []);
+            }
+            
+            const game = {
+              id: match.id,
+              title: match.title,
+              category: 'All Football (Contains popups)',
+              isLive: true,
+              statusText: 'LIVE',
+              date: match.date,
+              poster: match.poster,
+              teams: match.teams,
+              sources: match.sources,
+              sourceType: 'api' // Mark as API source
+            };
+            
+            categoriesMap.get('All Football (Contains popups)').push(game);
+          }
+          
         });
       }
     } catch (err) {
@@ -1199,7 +1220,7 @@ async function loadAvailableGames() {
     }));
     
     // Define sort priority for categories (NBA before College Basketball, then by game count)
-    const priorityOrder = ['NBA', 'NFL', 'College Basketball (Contains popups)', 'MLB', 'NHL', 'UFC', 'F1', 'CFB', 'Soccer (Contains popups)'];
+    const priorityOrder = ['NBA', 'NFL', 'College Basketball (Contains popups)','All Football (Contains popups)', 'MLB', 'NHL', 'UFC', 'F1', 'CFB', 'Soccer (Contains popups)'];
     categories.sort((a, b) => {
       const indexA = priorityOrder.indexOf(a.name);
       const indexB = priorityOrder.indexOf(b.name);
@@ -1245,6 +1266,7 @@ function renderGameList(categories) {
     if (category.name.includes('NBA')) icon = 'fa-basketball-ball';
     else if (category.name.includes('College Basketball')) icon = 'fa-basketball-ball';
     else if (category.name.includes('NFL')) icon = 'fa-football-ball';
+    else if (category.name.includes('All Football (Contains popups)')) icon = 'fa-football-ball';
     else if (category.name.includes('NHL')) icon = 'fa-hockey-puck';
     else if (category.name.includes('MLB')) icon = 'fa-baseball-ball';
     else if (category.name.includes('UFC')) icon = 'fa-fist-raised';
@@ -1253,7 +1275,7 @@ function renderGameList(categories) {
     else if (category.name.includes('Soccer')) icon = 'fa-futbol';
     
     const header = document.createElement('div');
-    header.className = 'category-header';
+    header.className = 'category-header collapsed';
     header.innerHTML = `
       <i class="fas ${icon}"></i> 
       ${category.name}
@@ -1269,7 +1291,7 @@ function renderGameList(categories) {
     categorySection.appendChild(header);
     
     const gameList = document.createElement('div');
-    gameList.className = 'game-list';
+    gameList.className = 'game-list hidden';
     
     category.games.forEach(game => {
       const gameItem = document.createElement('div');
