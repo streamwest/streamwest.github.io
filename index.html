@@ -258,6 +258,26 @@ html, body {
   background: #ff6666;
 }
 
+/* Sandbox toggle button */
+.control-btn.sandbox {
+  color: #FFD700;
+}
+
+.control-btn.sandbox:hover {
+  background: #FFD700;
+  color: #0D1117;
+}
+
+.control-btn.sandbox.disabled {
+  color: #888;
+  opacity: 0.6;
+}
+
+.control-btn.sandbox.disabled:hover {
+  background: #888;
+  color: #0D1117;
+}
+
 /* Visual feedback while dragging */
 .stream-slot {
   transition: transform 180ms ease, box-shadow 180ms ease, opacity 180ms ease;
@@ -642,7 +662,8 @@ function saveStreamsToStorage() {
         sources: streamData.sources,
         url: streamData.url, // scraped source page url when available
         currentStreamIndex: streamData.currentStreamIndex || 0,
-        sourceType: streamData.sourceType || 'api'
+        sourceType: streamData.sourceType || 'api',
+        sandboxEnabled: streamData.sandboxEnabled !== false // default to true
       };
     });
 
@@ -904,7 +925,10 @@ async function restoreStream(slotNumber, streamData) {
         currentServer: 0
       };
       
-      // Update slot with stream (WITH SANDBOX for StreamEast)
+      // Check if sandbox should be enabled (default true)
+      const sandboxEnabled = streamData.sandboxEnabled !== false;
+      
+      // Update slot with stream (WITH or WITHOUT SANDBOX based on setting)
       streamContent.innerHTML = `
         <iframe 
           src="${iframeSrc}"
@@ -913,7 +937,7 @@ async function restoreStream(slotNumber, streamData) {
           frameborder="0"
           scrolling="no"
           allowfullscreen="yes"
-          sandbox="allow-scripts allow-same-origin allow-forms"
+          ${sandboxEnabled ? 'sandbox="allow-scripts allow-same-origin allow-forms allow-popups"' : ''}
           referrerpolicy="origin"
           allow="autoplay; fullscreen; encrypted-media">
         </iframe>
@@ -941,6 +965,9 @@ async function restoreStream(slotNumber, streamData) {
       }
       
       controlsHTML += `
+        <button class="control-btn sandbox ${sandboxEnabled ? '' : 'disabled'}" onclick="toggleSandbox(${slotNumber})" title="${sandboxEnabled ? 'Sandbox Enabled - Click to Disable' : 'Sandbox Disabled - Click to Enable'}">
+          <i class="fas fa-shield-alt"></i>
+        </button>
         <button class="control-btn pip" onclick="enablePictureInPicture(${slotNumber})" title="Picture-in-Picture">
           <i class="fas fa-external-link-alt"></i>
         </button>
@@ -1718,7 +1745,7 @@ async function selectGame(game) {
           frameborder="0"
           scrolling="no"
           allowfullscreen="yes"
-          sandbox="allow-scripts allow-same-origin allow-forms"
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
           referrerpolicy="origin"
           allow="autoplay; fullscreen; encrypted-media">
         </iframe>
@@ -1751,6 +1778,17 @@ async function selectGame(game) {
           `).join('')}
         </select>
       `;
+    }
+    
+    // Add sandbox toggle for scraped streams only
+    if (game.sourceType !== 'api') {
+      controlsHTML += `
+        <button class="control-btn sandbox" onclick="toggleSandbox(${slotNumber})" title="Sandbox Enabled - Click to Disable">
+          <i class="fas fa-shield-alt"></i>
+        </button>
+      `;
+      // Store sandbox state
+      activeStreams[slotNumber].sandboxEnabled = true;
     }
     
     controlsHTML += `
@@ -1883,7 +1921,10 @@ async function switchStream(slotNumber, streamIndex) {
       
       const iframeSrc = iframe.src;
       
-      // Update iframe (WITH SANDBOX for StreamEast)
+      // Check if sandbox is enabled
+      const sandboxEnabled = streamData.sandboxEnabled !== false;
+      
+      // Update iframe (WITH or WITHOUT SANDBOX based on setting)
       streamContent.innerHTML = `
         <iframe 
           src="${iframeSrc}"
@@ -1892,7 +1933,7 @@ async function switchStream(slotNumber, streamIndex) {
           frameborder="0"
           scrolling="no"
           allowfullscreen="yes"
-          sandbox="allow-scripts allow-same-origin allow-forms"
+          ${sandboxEnabled ? 'sandbox="allow-scripts allow-same-origin allow-forms allow-popups"' : ''}
           referrerpolicy="origin"
           allow="autoplay; fullscreen; encrypted-media">
         </iframe>
@@ -1922,6 +1963,70 @@ async function switchStream(slotNumber, streamIndex) {
       }
     }
   }
+}
+
+// Toggle sandbox for a stream slot
+function toggleSandbox(slotNumber) {
+  const streamData = activeStreams[slotNumber];
+  if (!streamData || streamData.sourceType === 'api') {
+    // API streams don't use sandbox
+    return;
+  }
+  
+  const slot = document.querySelector(`.stream-slot[data-slot="${slotNumber}"]`);
+  if (!slot) return;
+  
+  const streamContent = slot.querySelector('.stream-content');
+  const iframe = streamContent?.querySelector('iframe');
+  if (!iframe) return;
+  
+  const currentSrc = iframe.src;
+  const sandboxBtn = slot.querySelector('.control-btn.sandbox');
+  
+  // Toggle sandbox state
+  const newSandboxEnabled = streamData.sandboxEnabled === false ? true : false;
+  streamData.sandboxEnabled = newSandboxEnabled;
+  
+  // Recreate iframe with or without sandbox
+  if (newSandboxEnabled) {
+    streamContent.innerHTML = `
+      <iframe 
+        src="${currentSrc}"
+        width="100%"
+        height="100%"
+        frameborder="0"
+        scrolling="no"
+        allowfullscreen="yes"
+        sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+        referrerpolicy="origin"
+        allow="autoplay; fullscreen; encrypted-media">
+      </iframe>
+    `;
+    if (sandboxBtn) {
+      sandboxBtn.classList.remove('disabled');
+      sandboxBtn.title = 'Sandbox Enabled - Click to Disable';
+    }
+  } else {
+    streamContent.innerHTML = `
+      <iframe 
+        src="${currentSrc}"
+        width="100%"
+        height="100%"
+        frameborder="0"
+        scrolling="no"
+        allowfullscreen="yes"
+        referrerpolicy="origin"
+        allow="autoplay; fullscreen; encrypted-media">
+      </iframe>
+    `;
+    if (sandboxBtn) {
+      sandboxBtn.classList.add('disabled');
+      sandboxBtn.title = 'Sandbox Disabled - Click to Enable';
+    }
+  }
+  
+  // Save to localStorage
+  saveStreamsToStorage();
 }
 
 // Remove stream from slot (clear content but keep slot)
