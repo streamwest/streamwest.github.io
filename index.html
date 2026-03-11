@@ -1086,16 +1086,16 @@ async function loadAvailableGames() {
             
             categoriesMap.get('Soccer (Contains popups)').push(game);
           }
-          // Include basketball from Streamed API - mark as College Basketball
+          // Include basketball from Streamed API - mark as All Basketball
           else if (category === 'basketball') {
-            if (!categoriesMap.has('College Basketball (Contains popups)')) {
-              categoriesMap.set('College Basketball (Contains popups)', []);
+            if (!categoriesMap.has('All Basketball (Contains popups)')) {
+              categoriesMap.set('All Basketball (Contains popups)', []);
             }
             
             const game = {
               id: match.id,
               title: match.title,
-              category: 'College Basketball (Contains popups)',
+              category: 'All Basketball (Contains popups)',
               isLive: true,
               statusText: 'LIVE',
               date: match.date,
@@ -1106,7 +1106,7 @@ async function loadAvailableGames() {
               hasPopups: true // Mark as having popups
             };
             
-            categoriesMap.get('College Basketball (Contains popups)').push(game);
+            categoriesMap.get('All Basketball (Contains popups)').push(game);
           }
           else if (category === 'american-football') {
             if (!categoriesMap.has('All Football (Contains popups)')) {
@@ -1190,7 +1190,7 @@ async function loadAvailableGames() {
               categoryTitle.toLowerCase() === 'football' ||
               categoryTitle.toLowerCase() === 'nfl') {
             categoryTitle = 'NFL';
-          } else if (categoryTitle.toLowerCase() === 'soccer' || categoryTitle.toLowerCase() === 'basketball' || categoryTitle.toLowerCase() === 'college basketball') {
+          } else if (categoryTitle.toLowerCase() === 'soccer' || categoryTitle.toLowerCase() === 'basketball' || categoryTitle.toLowerCase() === 'All Basketball') {
             // Skip soccer and basketball from StreamEast, we already got them from APIs
             return;
           }
@@ -1246,8 +1246,8 @@ async function loadAvailableGames() {
       games
     }));
     
-    // Define sort priority for categories (NBA before College Basketball, then by game count)
-    const priorityOrder = ['NBA', 'NFL', 'College Basketball (Contains popups)','All Football (Contains popups)', 'MLB', 'NHL', 'UFC', 'F1', 'CFB', 'Soccer (Contains popups)'];
+    // Define sort priority for categories (NBA before All Basketball, then by game count)
+    const priorityOrder = ['NBA', 'NFL', 'All Basketball (Contains popups)','All Football (Contains popups)', 'MLB', 'NHL', 'UFC', 'F1', 'CFB', 'Soccer (Contains popups)'];
     categories.sort((a, b) => {
       const indexA = priorityOrder.indexOf(a.name);
       const indexB = priorityOrder.indexOf(b.name);
@@ -1291,7 +1291,7 @@ function renderGameList(categories) {
     // Get icon for category
     let icon = 'fa-trophy';
     if (category.name.includes('NBA')) icon = 'fa-basketball-ball';
-    else if (category.name.includes('College Basketball')) icon = 'fa-basketball-ball';
+    else if (category.name.includes('All Basketball')) icon = 'fa-basketball-ball';
     else if (category.name.includes('NFL')) icon = 'fa-football-ball';
     else if (category.name.includes('All Football (Contains popups)')) icon = 'fa-football-ball';
     else if (category.name.includes('NHL')) icon = 'fa-hockey-puck';
